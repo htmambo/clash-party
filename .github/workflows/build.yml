@@ -357,24 +357,6 @@ jobs:
         run: |
           pnpm install
           pnpm add @mihomo-party/sysproxy-darwin-${{ matrix.arch }}
-      - name: Setup optional signing env
-        shell: bash
-        run: |
-          if [[ -n "${{ secrets.CSC_LINK }}" ]]; then
-            echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.CSC_KEY_PASSWORD }}" ]]; then
-            echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
-            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]]; then
-            echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_TEAM_ID }}" ]]; then
-            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
-          fi
       - name: Update Version for Dev Build
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -386,27 +368,10 @@ jobs:
         env:
           npm_config_arch: ${{ matrix.arch }}
           npm_config_target_arch: ${{ matrix.arch }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           chmod +x build/pkg-scripts/postinstall build/pkg-scripts/preinstall
           pnpm build:mac --${{ matrix.arch }}
-      - name: Setup temporary installer signing keychain
-        if: ${{ secrets.CSC_INSTALLER_LINK != '' && secrets.CSC_INSTALLER_KEY_PASSWORD != '' }}
-        uses: apple-actions/import-codesign-certs@v6
-        with:
-          p12-file-base64: ${{ secrets.CSC_INSTALLER_LINK }}
-          p12-password: ${{ secrets.CSC_INSTALLER_KEY_PASSWORD }}
-      - name: Sign the Apple pkg
-        if: ${{ secrets.CSC_INSTALLER_LINK != '' && secrets.CSC_INSTALLER_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
-        run: |
-          for pkg_name in $(ls -1 dist/*.pkg); do
-            pkg_name=$(ls -1 dist/*.pkg)
-            mv $pkg_name Unsigned-Workbench.pkg
-            productsign --sign "Developer ID Installer: Prometheus Advertising Corp (489PDK5LP3)" Unsigned-Workbench.pkg $pkg_name
-            rm -f Unsigned-Workbench.pkg
-            xcrun notarytool submit $pkg_name --apple-id $APPLE_ID --team-id $APPLE_TEAM_ID --password $APPLE_APP_SPECIFIC_PASSWORD --wait
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generate checksums
         run: pnpm checksum .pkg
       - name: Copy Legacy Artifacts
@@ -468,24 +433,6 @@ jobs:
           pnpm install
           pnpm add @mihomo-party/sysproxy-darwin-${{ matrix.arch }}
           pnpm add -D electron@32.2.2
-      - name: Setup optional signing env
-        shell: bash
-        run: |
-          if [[ -n "${{ secrets.CSC_LINK }}" ]]; then
-            echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.CSC_KEY_PASSWORD }}" ]]; then
-            echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
-            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]]; then
-            echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [[ -n "${{ secrets.APPLE_TEAM_ID }}" ]]; then
-            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
-          fi
       - name: Update Version for Dev Build
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -497,28 +444,11 @@ jobs:
         env:
           npm_config_arch: ${{ matrix.arch }}
           npm_config_target_arch: ${{ matrix.arch }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           sed -i "" -e "s/macos/catalina/" electron-builder.yml
           chmod +x build/pkg-scripts/postinstall build/pkg-scripts/preinstall
           pnpm build:mac --${{ matrix.arch }}
-      - name: Setup temporary installer signing keychain
-        if: ${{ secrets.CSC_INSTALLER_LINK != '' && secrets.CSC_INSTALLER_KEY_PASSWORD != '' }}
-        uses: apple-actions/import-codesign-certs@v6
-        with:
-          p12-file-base64: ${{ secrets.CSC_INSTALLER_LINK }}
-          p12-password: ${{ secrets.CSC_INSTALLER_KEY_PASSWORD }}
-      - name: Sign the Apple pkg
-        if: ${{ secrets.CSC_INSTALLER_LINK != '' && secrets.CSC_INSTALLER_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
-        run: |
-          for pkg_name in $(ls -1 dist/*.pkg); do
-            pkg_name=$(ls -1 dist/*.pkg)
-            mv $pkg_name Unsigned-Workbench.pkg
-            productsign --sign "Developer ID Installer: Prometheus Advertising Corp (489PDK5LP3)" Unsigned-Workbench.pkg $pkg_name
-            rm -f Unsigned-Workbench.pkg
-            xcrun notarytool submit $pkg_name --apple-id $APPLE_ID --team-id $APPLE_TEAM_ID --password $APPLE_APP_SPECIFIC_PASSWORD --wait
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generate checksums
         run: pnpm checksum .pkg
       - name: Copy Legacy Artifacts
