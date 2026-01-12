@@ -24,6 +24,70 @@ let connectionsRetry = 10
 
 const MAX_RETRY = 10
 
+let logsSubscribers = 0
+let connectionsSubscribers = 0
+
+export function hasMihomoLogsSubscribers(): boolean {
+  return logsSubscribers > 0
+}
+
+export function hasMihomoConnectionsSubscribers(): boolean {
+  return connectionsSubscribers > 0
+}
+
+export async function subscribeMihomoLogs(): Promise<void> {
+  logsSubscribers++
+  if (logsSubscribers === 1) {
+    try {
+      await startMihomoLogs()
+    } catch (e) {
+      mihomoApiLogger.warn('Failed to start logs stream on subscribe', e)
+    }
+  }
+}
+
+export function unsubscribeMihomoLogs(): void {
+  logsSubscribers = Math.max(0, logsSubscribers - 1)
+  if (logsSubscribers === 0) {
+    stopMihomoLogs()
+  }
+}
+
+export async function subscribeMihomoConnections(): Promise<void> {
+  connectionsSubscribers++
+  if (connectionsSubscribers === 1) {
+    try {
+      await startMihomoConnections()
+    } catch (e) {
+      mihomoApiLogger.warn('Failed to start connections stream on subscribe', e)
+    }
+  }
+}
+
+export function unsubscribeMihomoConnections(): void {
+  connectionsSubscribers = Math.max(0, connectionsSubscribers - 1)
+  if (connectionsSubscribers === 0) {
+    stopMihomoConnections()
+  }
+}
+
+export async function ensureOptionalStreamsRunning(): Promise<void> {
+  if (hasMihomoConnectionsSubscribers()) {
+    try {
+      await startMihomoConnections()
+    } catch (e) {
+      mihomoApiLogger.warn('Failed to ensure connections stream is running', e)
+    }
+  }
+  if (hasMihomoLogsSubscribers()) {
+    try {
+      await startMihomoLogs()
+    } catch (e) {
+      mihomoApiLogger.warn('Failed to ensure logs stream is running', e)
+    }
+  }
+}
+
 export const getAxios = async (force: boolean = false): Promise<AxiosInstance> => {
   const dynamicIpcPath = getMihomoIpcPath()
 

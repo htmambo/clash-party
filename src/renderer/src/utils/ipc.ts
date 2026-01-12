@@ -49,6 +49,12 @@ export const mihomoSmartFlushCache = (configName?: string): Promise<void> =>
 export const getSmartOverrideContent = (): Promise<string | null> =>
   invoke('getSmartOverrideContent')
 
+export const subscribeMihomoLogs = (): Promise<void> => invoke('subscribeMihomoLogs')
+export const unsubscribeMihomoLogs = (): Promise<void> => invoke('unsubscribeMihomoLogs')
+export const subscribeMihomoConnections = (): Promise<void> => invoke('subscribeMihomoConnections')
+export const unsubscribeMihomoConnections = (): Promise<void> =>
+  invoke('unsubscribeMihomoConnections')
+
 // AutoRun
 export const checkAutoRun = (): Promise<boolean> => invoke('checkAutoRun')
 export const enableAutoRun = (): Promise<void> => invoke('enableAutoRun')

@@ -5,6 +5,11 @@ import zlib from 'zlib'
 import { extract } from 'tar'
 import { execSync } from 'child_process'
 
+if (process.env.SKIP_PREPARE === '1') {
+  console.log('[INFO]: SKIP_PREPARE=1, skipping scripts/prepare.mjs')
+  process.exit(0)
+}
+
 const cwd = process.cwd()
 const TEMP_DIR = path.join(cwd, 'node_modules/.temp')
 let arch = process.arch

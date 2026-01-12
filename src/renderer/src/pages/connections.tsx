@@ -1,5 +1,10 @@
 import BasePage from '@renderer/components/base/base-page'
-import { mihomoCloseAllConnections, mihomoCloseConnection } from '@renderer/utils/ipc'
+import {
+  mihomoCloseAllConnections,
+  mihomoCloseConnection,
+  subscribeMihomoConnections,
+  unsubscribeMihomoConnections
+} from '@renderer/utils/ipc'
 import { Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, Button, Divider, Input, Select, SelectItem, Tab, Tabs , Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from '@heroui/react'
 import { calcTraffic } from '@renderer/utils/calc'
@@ -206,12 +211,18 @@ const Connections: React.FC = () => {
       cachedConnections = allConns
     }
 
-    if (!isPaused) {
-      window.electron.ipcRenderer.on('mihomoConnections', handler)
-    }
+    if (isPaused) return
+
+    subscribeMihomoConnections().catch(() => {
+      // ignore
+    })
+    window.electron.ipcRenderer.on('mihomoConnections', handler)
 
     return (): void => {
-      window.electron.ipcRenderer.removeAllListeners('mihomoConnections')
+      window.electron.ipcRenderer.removeListener('mihomoConnections', handler)
+      unsubscribeMihomoConnections().catch(() => {
+        // ignore
+      })
     }
   }, [isPaused])
   const togglePause = useCallback(() => {

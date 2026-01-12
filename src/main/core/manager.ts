@@ -30,13 +30,12 @@ import i18next from '../../shared/i18n'
 import { managerLogger } from '../utils/logger'
 import {
   startMihomoTraffic,
-  startMihomoConnections,
-  startMihomoLogs,
   startMihomoMemory,
   stopMihomoConnections,
   stopMihomoTraffic,
   stopMihomoLogs,
   stopMihomoMemory,
+  ensureOptionalStreamsRunning,
   patchMihomoConfig,
   getAxios
 } from './mihomoApi'
@@ -262,9 +261,8 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
         await waitForCoreReady()
         await getAxios(true)
         await startMihomoTraffic()
-        await startMihomoConnections()
-        await startMihomoLogs()
         await startMihomoMemory()
+        await ensureOptionalStreamsRunning()
         retry = 10
       }
     })

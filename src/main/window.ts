@@ -7,9 +7,11 @@ import { getAppConfig } from './config'
 import { quitWithoutCore, stopCore } from './core/manager'
 import { triggerSysProxy } from './sys/sysproxy'
 import { hideDockIcon, showDockIcon } from './resolve/tray'
+import { createLogger } from './utils/logger'
 
 export let mainWindow: BrowserWindow | null = null
 let quitTimeout: NodeJS.Timeout | null = null
+const windowLogger = createLogger('Window')
 
 export async function createWindow(): Promise<void> {
   const { useWindowFrame = false, silentStart = false, autoQuitWithoutCore = false, autoQuitWithoutCoreDelay = 60 } = await getAppConfig()
@@ -88,6 +90,18 @@ function setupWindowEvents(
 
   window.webContents.on('did-fail-load', () => {
     window.webContents.reload()
+  })
+
+  window.on('unresponsive', () => {
+    windowLogger.warn('Main window became unresponsive')
+  })
+
+  window.on('responsive', () => {
+    windowLogger.info('Main window became responsive')
+  })
+
+  window.webContents.on('render-process-gone', (_event, details) => {
+    windowLogger.error('render-process-gone', details)
   })
 
   window.on('show', () => {

@@ -7,6 +7,7 @@ import { IoLocationSharp } from 'react-icons/io5'
 import { CgTrash } from 'react-icons/cg'
 import { useTranslation } from 'react-i18next'
 import { includesIgnoreCase } from '@renderer/utils/includes'
+import { subscribeMihomoLogs, unsubscribeMihomoLogs } from '@renderer/utils/ipc'
 
 const LOGS_FILTER_KEY = 'logs-filter'
 
@@ -24,18 +25,6 @@ const cachedLogs: {
     }
   }
 }
-
-window.electron.ipcRenderer.on('mihomoLogs', (_e, ...args) => {
-  const log = args[0] as IMihomoLogInfo
-  log.time = new Date().toLocaleString()
-  cachedLogs.log.push(log)
-  if (cachedLogs.log.length >= 500) {
-    cachedLogs.log.shift()
-  }
-  if (cachedLogs.trigger !== null) {
-    cachedLogs.trigger(cachedLogs.log)
-  }
-})
 
 const Logs: React.FC = () => {
   const { t } = useTranslation()
@@ -68,12 +57,49 @@ const Logs: React.FC = () => {
   }, [filteredLogs, trace])
 
   useEffect(() => {
-    const old = cachedLogs.trigger
-    cachedLogs.trigger = (a): void => {
-      setLogs([...a])
+    let mounted = true
+    let scheduled = false
+    let rafId = 0
+
+    const flush = (): void => {
+      scheduled = false
+      if (!mounted) return
+      setLogs([...cachedLogs.log])
     }
+
+    const scheduleFlush = (): void => {
+      if (scheduled) return
+      scheduled = true
+      rafId = requestAnimationFrame(flush)
+    }
+
+    const handler = (_e: unknown, ...args: unknown[]): void => {
+      const log = args[0] as IMihomoLogInfo
+      log.time = new Date().toLocaleString()
+      cachedLogs.log.push(log)
+      if (cachedLogs.log.length >= 500) {
+        cachedLogs.log.shift()
+      }
+      scheduleFlush()
+    }
+
+    const old = cachedLogs.trigger
+    cachedLogs.trigger = (): void => scheduleFlush()
+
+    subscribeMihomoLogs().catch(() => {
+      // ignore
+    })
+    window.electron.ipcRenderer.on('mihomoLogs', handler)
+    scheduleFlush()
+
     return (): void => {
+      mounted = false
+      cancelAnimationFrame(rafId)
+      window.electron.ipcRenderer.removeListener('mihomoLogs', handler)
       cachedLogs.trigger = old
+      unsubscribeMihomoLogs().catch(() => {
+        // ignore
+      })
     }
   }, [])
 

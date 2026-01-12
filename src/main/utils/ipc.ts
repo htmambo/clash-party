@@ -22,6 +22,10 @@ import {
   mihomoUpgradeUI,
   mihomoUpgradeConfig,
   mihomoVersion,
+  subscribeMihomoConnections,
+  subscribeMihomoLogs,
+  unsubscribeMihomoConnections,
+  unsubscribeMihomoLogs,
   patchMihomoConfig,
   mihomoSmartGroupWeights,
   mihomoSmartFlushCache
@@ -221,6 +225,10 @@ const asyncHandlers: Record<string, AsyncFn> = {
   patchMihomoConfig,
   mihomoSmartGroupWeights,
   mihomoSmartFlushCache,
+  subscribeMihomoLogs,
+  unsubscribeMihomoLogs: async () => unsubscribeMihomoLogs(),
+  subscribeMihomoConnections,
+  unsubscribeMihomoConnections: async () => unsubscribeMihomoConnections(),
   // AutoRun
   checkAutoRun,
   enableAutoRun,

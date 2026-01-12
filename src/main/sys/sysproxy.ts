@@ -1,7 +1,6 @@
 import { promisify } from 'util'
 import { exec } from 'child_process'
 import fs from 'fs'
-import { triggerAutoProxy, triggerManualProxy } from 'sysproxy-rs'
 import { net } from 'electron'
 import axios from 'axios'
 import { getAppConfig, getControledMihomoConfig } from '../config'
@@ -10,6 +9,13 @@ import { proxyLogger } from '../utils/logger'
 
 let triggerSysProxyTimer: NodeJS.Timeout | null = null
 const helperSocketPath = '/tmp/mihomo-party-helper.sock'
+
+let sysproxyRs: typeof import('sysproxy-rs') | null = null
+async function getSysproxyRs(): Promise<typeof import('sysproxy-rs')> {
+  if (sysproxyRs) return sysproxyRs
+  sysproxyRs = await import('sysproxy-rs')
+  return sysproxyRs
+}
 
 const defaultBypass: string[] = (() => {
   switch (process.platform) {
@@ -97,6 +103,7 @@ async function enableSysProxy(): Promise<void> {
     }
   } else {
     // Windows / Linux 直接使用 sysproxy-rs
+    const { triggerAutoProxy, triggerManualProxy } = await getSysproxyRs()
     if (mode === 'auto') {
       triggerAutoProxy(true, `http://${proxyHost}:${pacPort}/pac`)
     } else {
@@ -114,6 +121,7 @@ async function disableSysProxy(): Promise<void> {
     )
   } else {
     // Windows / Linux 直接使用 sysproxy-rs
+    const { triggerAutoProxy, triggerManualProxy } = await getSysproxyRs()
     triggerAutoProxy(false, '')
     triggerManualProxy(false, '', 0, '')
   }
