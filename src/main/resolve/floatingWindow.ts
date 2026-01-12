@@ -9,6 +9,29 @@ import { buildContextMenu, showTrayIcon } from './tray'
 
 export let floatingWindow: BrowserWindow | null = null
 
+// ============================================================================
+// IPC Handler
+// ============================================================================
+
+/**
+ * 悬浮窗更新 IPC 监听器
+ *
+ * 注意：此监听器在模块加载时注册一次，避免反复创建/销毁窗口时累积
+ */
+function updateFloatingWindowHandler(): void {
+  if (floatingWindow) {
+    floatingWindow.webContents.send('controledMihomoConfigUpdated')
+    floatingWindow.webContents.send('appConfigUpdated')
+  }
+}
+
+// 在模块加载时注册 IPC 监听器（仅注册一次）
+ipcMain.on('updateFloatingWindow', updateFloatingWindowHandler)
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
 function logError(message: string, error?: unknown): void {
   floatingWindowLogger.log(`FloatingWindow Error: ${message}`, error).catch(() => {})
 }
@@ -72,14 +95,6 @@ async function createFloatingWindow(): Promise<void> {
     floatingWindow.on('moved', () => {
       if (floatingWindow) {
         floatingWindowState.saveState(floatingWindow)
-      }
-    })
-
-    // IPC 监听器
-    ipcMain.on('updateFloatingWindow', () => {
-      if (floatingWindow) {
-        floatingWindow.webContents.send('controledMihomoConfigUpdated')
-        floatingWindow.webContents.send('appConfigUpdated')
       }
     })
 

@@ -11,6 +11,9 @@ importers:
       '@electron-toolkit/utils':
         specifier: ^4.0.0
         version: 4.0.0(electron@37.10.0)
+      '@mihomo-party/sysproxy-darwin-x64':
+        specifier: ^2.0.8
+        version: 2.0.8
       adm-zip:
         specifier: ^0.5.16
         version: 0.5.16
@@ -1416,6 +1419,12 @@ packages:
   '@malept/flatpak-bundler@0.4.0':
     resolution: {integrity: sha512-9QOtNffcOF/c1seMCDnjckb3R9WHcG34tky+FHpNKKCW0wc/scYLwMtO+ptyGUfMW0/b/n4qRiALlaFHc9Oj7Q==}
     engines: {node: '>= 10.0.0'}
+
+  '@mihomo-party/sysproxy-darwin-x64@2.0.8':
+    resolution: {integrity: sha512-sIDzG7yyQZu+DKQ8X1MeYubdEqXSDjzYjVi+5rVZG/jfLlucS9QZNNiXyoTTDUD5cGRcqv1gYNRynd2Csewesg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
 
   '@npmcli/fs@2.1.2':
     resolution: {integrity: sha512-yOJKRvohFOaLqipNtwYB9WugyZKhC/DZC4VYPmpaCzDBrA8YpK3qHZ8/HGscMnE4GqbkLNuVcCnxkeQEdGt6LQ==}
@@ -6874,6 +6883,8 @@ snapshots:
       tmp-promise: 3.0.3
     transitivePeerDependencies:
       - supports-color
+
+  '@mihomo-party/sysproxy-darwin-x64@2.0.8': {}
 
   '@npmcli/fs@2.1.2':
     dependencies:

@@ -2,7 +2,7 @@ import { copyFile, rm, writeFile } from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import os from 'os'
-import { exec, execSync, spawn } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { app, shell } from 'electron'
 import i18next from 'i18next'
@@ -75,10 +75,9 @@ export async function downloadAndInstallUpdate(version: string): Promise<void> {
     file = file.replace('windows', 'win7')
   }
   if (process.platform === 'darwin') {
-    const productVersion = execSync('sw_vers -productVersion', { encoding: 'utf8' })
-      .toString()
-      .trim()
-    if (parseInt(productVersion) < 11) {
+    // 使用 Electron 内置 API 获取系统版本，避免 spawn 子进程
+    const productVersion = app.getSystemVersion()
+    if (parseInt(productVersion.split('.')[0]) < 11) {
       file = file.replace('macos', 'catalina')
     }
   }

@@ -24,6 +24,13 @@ import { useTranslation } from 'react-i18next'
 // 注册 Chart.js 组件
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler)
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Traffic 更新节流时间（毫秒），减少图表更新频率 */
+const TRAFFIC_UPDATE_THROTTLE_MS = 500
+
 interface Props {
   iconOnly?: boolean
 }
@@ -126,18 +133,39 @@ const ConnCard: React.FC<Props> = (props) => {
 
   const transform = tf ? { x: tf.x, y: tf.y, scaleX: 1, scaleY: 1 } : null
 
-  // 使用 useCallback 创建稳定的 handler 引用
+  // ============================================================================
+  // Traffic Update Handler with Throttle
+  // ============================================================================
+
+  /**
+   * 处理 Traffic 数据更新（带节流）
+   *
+   * 核心优化：
+   * 1. 节流机制：减少 UI 更新频率（500ms）
+   * 2. 批量更新：合并 upload/download/series 的一次性更新
+   * 3. 避免频繁的 setState 调用
+   */
   const handleTraffic = useCallback(
     async (_e: unknown, ...args: unknown[]) => {
       const info = args[0] as IMihomoTrafficInfo
+
+      // 立即更新流量显示（用户体验优先）
       setUpload(info.up)
       setDownload(info.down)
-      setSeries((prev) => {
-        const data = [...prev]
-        data.shift()
-        data.push(info.up + info.down)
-        return data
-      })
+
+      // 节流更新图表数据（性能优先）
+      const now = Date.now()
+      if (now - (handleTraffic as any)._lastUpdate >= TRAFFIC_UPDATE_THROTTLE_MS) {
+        (handleTraffic as any)._lastUpdate = now
+        setSeries((prev) => {
+          const data = [...prev]
+          data.shift()
+          data.push(info.up + info.down)
+          return data
+        })
+      }
+
+      // macOS 托盘图标绘制（带防重复）
       if (platform === 'darwin' && showTraffic) {
         if (drawingRef.current) return
         drawingRef.current = true
@@ -157,6 +185,9 @@ const ConnCard: React.FC<Props> = (props) => {
     },
     [showTraffic]
   )
+
+  // 初始化节流时间戳
+  ;(handleTraffic as any)._lastUpdate = 0
 
   useEffect(() => {
     window.electron.ipcRenderer.on('mihomoTraffic', handleTraffic)

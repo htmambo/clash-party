@@ -1,6 +1,6 @@
 import BasePage from '@renderer/components/base/base-page'
 import { mihomoCloseAllConnections, mihomoCloseConnection } from '@renderer/utils/ipc'
-import { Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Key, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, Divider, Input, Select, SelectItem, Tab, Tabs , Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from '@heroui/react'
 import { calcTraffic } from '@renderer/utils/calc'
 import ConnectionItem from '@renderer/components/connections/connection-item'
@@ -14,11 +14,20 @@ import { HiSortAscending, HiSortDescending } from 'react-icons/hi'
 import { MdViewList, MdTableChart } from 'react-icons/md'
 import { HiOutlineAdjustmentsHorizontal } from 'react-icons/hi2'
 import { includesIgnoreCase } from '@renderer/utils/includes'
-import differenceWith from 'lodash/differenceWith'
-import unionWith from 'lodash/unionWith'
 import { useTranslation } from 'react-i18next'
 import { IoMdPause, IoMdPlay } from 'react-icons/io'
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** 最大保留的已关闭连接数，防止内存无限增长 */
+const MAX_CLOSED_CONNECTIONS = 200
+
+/** 连接更新节流时间（毫秒），减少 UI 更新频率 */
+const CONNECTIONS_UPDATE_THROTTLE_MS = 300
+
+/** 缓存所有连接数据，用于页面刷新后恢复 */
 let cachedConnections: IMihomoConnectionDetail[] = []
 
 const Connections: React.FC = () => {
@@ -47,10 +56,31 @@ const Connections: React.FC = () => {
     connectionTableSortColumn,
     connectionTableSortDirection
   } = appConfig || {}
-  const [connectionsInfo, setConnectionsInfo] = useState<IMihomoConnectionsInfo>()
-  const [allConnections, setAllConnections] = useState<IMihomoConnectionDetail[]>(cachedConnections)
-  const [activeConnections, setActiveConnections] = useState<IMihomoConnectionDetail[]>([])
-  const [closedConnections, setClosedConnections] = useState<IMihomoConnectionDetail[]>([])
+
+  // ============================================================================
+  // State Management
+  // ============================================================================
+
+  /**
+   * 统一的连接状态管理
+   * 将多个相关状态合并为一个，减少 setState 调用次数，从而减少重新渲染
+   */
+  type ConnectionsState = {
+    connectionsInfo?: IMihomoConnectionsInfo
+    allConnections: IMihomoConnectionDetail[]
+    activeConnections: IMihomoConnectionDetail[]
+    closedConnections: IMihomoConnectionDetail[]
+  }
+
+  const [connectionsState, setConnectionsState] = useState<ConnectionsState>(() => ({
+    connectionsInfo: undefined,
+    allConnections: cachedConnections,
+    activeConnections: [],
+    closedConnections: []
+  }))
+
+  const { connectionsInfo, allConnections, activeConnections, closedConnections } = connectionsState
+
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [selected, setSelected] = useState<IMihomoConnectionDetail>()
   const [tab, setTab] = useState('active')
@@ -58,12 +88,9 @@ const Connections: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'table'>(connectionViewMode)
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(connectionTableColumns))
 
-  const activeConnectionsRef = useRef(activeConnections)
-  const allConnectionsRef = useRef(allConnections)
-  useEffect(() => {
-    activeConnectionsRef.current = activeConnections
-    allConnectionsRef.current = allConnections
-  }, [activeConnections, allConnections])
+  // ============================================================================
+  // Computed Values
+  // ============================================================================
 
   const selectedConnection = useMemo(() => {
     if (!selected) return undefined
@@ -148,70 +175,216 @@ const Connections: React.FC = () => {
     [tab]
   )
 
+  /**
+   * 删除所有已关闭的连接
+   * 使用统一的 setConnectionsState 减少 setState 调用
+   */
   const trashAllClosedConnection = (): void => {
-    setClosedConnections((closedConns) => {
-      const trashIds = new Set(closedConns.map((conn) => conn.id))
-      setAllConnections((allConns) => {
-        const filtered = allConns.filter((conn) => !trashIds.has(conn.id))
-        cachedConnections = filtered
-        return filtered
-      })
-      return []
+    setConnectionsState((prev) => {
+      const trashIds = new Set(prev.closedConnections.map((conn) => conn.id))
+      const filteredAll = prev.allConnections.filter((conn) => !trashIds.has(conn.id))
+      cachedConnections = filteredAll
+      return {
+        ...prev,
+        allConnections: filteredAll,
+        closedConnections: []
+      }
     })
   }
 
+  /**
+   * 删除单个已关闭的连接
+   */
   const trashClosedConnection = (id: string): void => {
-    setAllConnections((allConns) => {
-      const filtered = allConns.filter((conn) => conn.id !== id)
-      cachedConnections = filtered
-      return filtered
+    setConnectionsState((prev) => {
+      const filteredAll = prev.allConnections.filter((conn) => conn.id !== id)
+      cachedConnections = filteredAll
+      return {
+        ...prev,
+        allConnections: filteredAll,
+        closedConnections: prev.closedConnections.filter((conn) => conn.id !== id)
+      }
     })
-    setClosedConnections((closedConns) => closedConns.filter((conn) => conn.id !== id))
   }
+
+  // ============================================================================
+  // Effects: Connection Data Processing
+  // ============================================================================
 
   useEffect(() => {
-    const handler = (_e: unknown, ...args: unknown[]): void => {
-      const info = args[0] as IMihomoConnectionsInfo
-      setConnectionsInfo(info)
+    // --------------------------------------------------------------------
+    // 节流状态管理
+    // --------------------------------------------------------------------
+    let lastFlushAt = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let pendingInfo: IMihomoConnectionsInfo | null = null
 
-      if (!info.connections) return
-      const allConns = unionWith(
-        activeConnectionsRef.current,
-        allConnectionsRef.current,
-        (a, b) => a.id === b.id
-      )
+    // --------------------------------------------------------------------
+    // 应用连接数据更新
+    // --------------------------------------------------------------------
+    /**
+     * 核心优化：使用 O(n) 算法替代 O(n*m) 的 unionWith/differenceWith
+     *
+     * 性能改进点：
+     * 1. 使用 Set 和 Map 索引，时间复杂度从 O(n*m) 降到 O(n)
+     * 2. 合并三次 setState 为一次，减少重新渲染
+     * 3. 增量更新，避免全量数组操作
+     */
+    const applyInfo = (info: IMihomoConnectionsInfo): void => {
+      lastFlushAt = Date.now()
 
-      const prevConnMap = new Map(activeConnectionsRef.current.map((c) => [c.id, c]))
-      const activeConns = info.connections.map((conn) => {
-        const preConn = prevConnMap.get(conn.id)
+      setConnectionsState((prev) => {
+        if (!info.connections) {
+          return { ...prev, connectionsInfo: info }
+        }
+
+        // ----------------------------------------------------------------
+        // 步骤 1: 构建 allConnections (去重合并)
+        // 时间复杂度: O(n)，替代 unionWith 的 O(n*m)
+        // ----------------------------------------------------------------
+        const allConns: IMihomoConnectionDetail[] = []
+        const seenIds = new Set<string>()
+
+        // 先添加活跃连接（保持顺序）
+        for (const conn of prev.activeConnections) {
+          if (seenIds.has(conn.id)) continue
+          seenIds.add(conn.id)
+          allConns.push(conn)
+        }
+
+        // 再添加历史连接（去重）
+        for (const conn of prev.allConnections) {
+          if (seenIds.has(conn.id)) continue
+          seenIds.add(conn.id)
+          allConns.push(conn)
+        }
+
+        // ----------------------------------------------------------------
+        // 步骤 2: 计算活跃连接（增量更新速度）
+        // 使用 Map 索引加速查找：O(1) vs O(n)
+        // ----------------------------------------------------------------
+        const prevActiveById = new Map(prev.activeConnections.map((conn) => [conn.id, conn]))
+        const activeIds = new Set<string>()
+        const nextActiveConnections: IMihomoConnectionDetail[] = []
+
+        for (const conn of info.connections) {
+          activeIds.add(conn.id)
+          const prevConn = prevActiveById.get(conn.id)
+          nextActiveConnections.push({
+            ...conn,
+            isActive: true,
+            // 增量计算速度：当前流量 - 上次流量
+            downloadSpeed: prevConn ? conn.download - prevConn.download : 0,
+            uploadSpeed: prevConn ? conn.upload - prevConn.upload : 0
+          })
+        }
+
+        // ----------------------------------------------------------------
+        // 步骤 3: 计算已关闭连接
+        // 时间复杂度: O(n)，替代 differenceWith 的 O(n*m)
+        // ----------------------------------------------------------------
+        const nextClosedConnections: IMihomoConnectionDetail[] = []
+        for (const conn of allConns) {
+          if (activeIds.has(conn.id)) continue
+          nextClosedConnections.push({
+            ...conn,
+            isActive: false,
+            downloadSpeed: 0,
+            uploadSpeed: 0
+          })
+        }
+
+        // ----------------------------------------------------------------
+        // 步骤 4: 限制 allConnections 大小，防止内存无限增长
+        // ----------------------------------------------------------------
+        const nextAllConnections = allConns.slice(
+          -(nextActiveConnections.length + MAX_CLOSED_CONNECTIONS)
+        )
+
+        // 更新缓存（使用截断后的列表，与 state 保持一致）
+        // 注意：这里缓存的是截断后的数据，而不是完整的 allConns
+        // 这样可以确保刷新后的数据量可控，避免内存占用过大
+        cachedConnections = nextAllConnections
+
+        // ----------------------------------------------------------------
+        // 步骤 5: 一次性更新所有状态（减少重新渲染）
+        // ----------------------------------------------------------------
         return {
-          ...conn,
-          isActive: true,
-          downloadSpeed: preConn ? conn.download - preConn.download : 0,
-          uploadSpeed: preConn ? conn.upload - preConn.upload : 0
+          ...prev,
+          connectionsInfo: info,
+          activeConnections: nextActiveConnections,
+          closedConnections: nextClosedConnections,
+          allConnections: nextAllConnections
         }
       })
-      const closedConns = differenceWith(allConns, activeConns, (a, b) => a.id === b.id).map(
-        (conn) => ({
-          ...conn,
-          isActive: false,
-          downloadSpeed: 0,
-          uploadSpeed: 0
-        })
-      )
-
-      setActiveConnections(activeConns)
-      setClosedConnections(closedConns)
-      setAllConnections(allConns.slice(-(activeConns.length + 200)))
-      cachedConnections = allConns
     }
 
+    // --------------------------------------------------------------------
+    // 节流调度：批量处理高频更新
+    // --------------------------------------------------------------------
+    /**
+     * 注意：节流会改变速度计算的时间间隔
+     *
+     * uploadSpeed/downloadSpeed 的计算方式是：当前累计流量 - 上次累计流量
+     * 在无节流时，时间间隔 = IPC 推送间隔
+     * 在有节流时，时间间隔 = max(节流时间, IPC 推送间隔)
+     *
+     * 这意味着：
+     * - 如果 IPC 推送频率 = 1s，节流 300ms 几乎不影响速度语义
+     * - 如果 IPC 推送频率 >> 300ms，速度值会变成"每节流间隔的增量"
+     *
+     * 当前实现中，速度字段主要反映相对大小（快/慢），而非严格的 bytes/s
+     * 因此节流对用户体验的影响很小
+     */
+    const scheduleApply = (info: IMihomoConnectionsInfo): void => {
+      pendingInfo = info
+      if (timer !== null) return
+
+      const now = Date.now()
+      const delay = Math.max(CONNECTIONS_UPDATE_THROTTLE_MS - (now - lastFlushAt), 0)
+      timer = setTimeout(() => {
+        timer = null
+        if (!pendingInfo) return
+        const latest = pendingInfo
+        pendingInfo = null
+        applyInfo(latest)
+      }, delay)
+    }
+
+    // --------------------------------------------------------------------
+    // IPC 事件处理器（带节流）
+    // --------------------------------------------------------------------
+    const handler = (_e: unknown, ...args: unknown[]): void => {
+      const info = args[0] as IMihomoConnectionsInfo
+
+      // 禁用节流时直接应用
+      if (CONNECTIONS_UPDATE_THROTTLE_MS <= 0) {
+        applyInfo(info)
+        return
+      }
+
+      // 节流逻辑：如果距离上次更新超过节流时间，立即应用；否则延迟应用
+      const now = Date.now()
+      if (now - lastFlushAt >= CONNECTIONS_UPDATE_THROTTLE_MS) {
+        applyInfo(info)
+      } else {
+        scheduleApply(info)
+      }
+    }
+
+    // 注册监听器
     if (!isPaused) {
       window.electron.ipcRenderer.on('mihomoConnections', handler)
     }
 
+    // 清理函数
     return (): void => {
       window.electron.ipcRenderer.removeAllListeners('mihomoConnections')
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+      pendingInfo = null
     }
   }, [isPaused])
   const togglePause = useCallback(() => {

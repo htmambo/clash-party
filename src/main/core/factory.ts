@@ -1,6 +1,6 @@
-import { copyFile, mkdir, writeFile, readFile } from 'fs/promises'
+import { copyFile, mkdir, writeFile, readFile, appendFile } from 'fs/promises'
 import vm from 'vm'
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 import path from 'path'
 import {
   getControledMihomoConfig,
@@ -206,32 +206,50 @@ function runOverrideScript(
   script: string,
   item: IOverrideItem
 ): IMihomoConfig {
-  const log = (type: string, data: string, flag = 'a'): void => {
-    writeFileSync(overridePath(item.id, 'log'), `[${type}] ${data}\n`, {
-      encoding: 'utf-8',
-      flag
-    })
+  /**
+   * 异步日志写入函数
+   *
+   * 优化：使用异步 appendFile 替代 writeFileSync，避免阻塞主进程
+   * 注意：不等待写入完成，让 I/O 在后台执行
+   */
+  const log = async (type: string, data: string, flag = 'a'): Promise<void> => {
+    try {
+      const logPath = overridePath(item.id, 'log')
+      const logContent = `[${type}] ${data}\n`
+
+      if (flag === 'w') {
+        // 覆盖模式（首次写入）
+        await writeFile(logPath, logContent, { encoding: 'utf-8' })
+      } else {
+        // 追加模式
+        await appendFile(logPath, logContent, { encoding: 'utf-8' })
+      }
+    } catch (error) {
+      // 日志写入失败不影响主流程，静默处理
+      console.error('Failed to write override script log:', error)
+    }
   }
+
   try {
     const ctx = {
       console: Object.freeze({
         log(data: never) {
-          log('log', JSON.stringify(data))
+          log('log', JSON.stringify(data)).catch(() => {})
         },
         info(data: never) {
-          log('info', JSON.stringify(data))
+          log('info', JSON.stringify(data)).catch(() => {})
         },
         error(data: never) {
-          log('error', JSON.stringify(data))
+          log('error', JSON.stringify(data)).catch(() => {})
         },
         debug(data: never) {
-          log('debug', JSON.stringify(data))
+          log('debug', JSON.stringify(data)).catch(() => {})
         }
       })
     }
     vm.createContext(ctx)
     const code = `${script} main(${JSON.stringify(profile)})`
-    log('info', '开始执行脚本', 'w')
+    log('info', '开始执行脚本', 'w').catch(() => {})
     const newProfile = vm.runInContext(code, ctx)
     if (typeof newProfile !== 'object') {
       throw new Error('脚本返回值必须是对象')
