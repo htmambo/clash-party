@@ -6,6 +6,17 @@ const { platform, arch } = process
 let nativeBinding = null
 let loadError = null
 
+function optionalPackageName() {
+  // Prefer loading from a platform-specific prebuilt package when available.
+  // These packages set `"main"` to the `.node` file, and electron-builder will
+  // place the binary in `app.asar.unpacked` automatically.
+  if (platform === 'darwin') {
+    if (arch === 'x64') return '@mihomo-party/sysproxy-darwin-x64'
+    if (arch === 'arm64') return '@mihomo-party/sysproxy-darwin-arm64'
+  }
+  return null
+}
+
 function isMusl() {
   if (!process.report || typeof process.report.getReport !== 'function') {
     try {
@@ -45,6 +56,19 @@ function getBindingName() {
 
 function loadBinding() {
   const bindingName = getBindingName()
+
+  const pkgName = optionalPackageName()
+  if (pkgName) {
+    try {
+      nativeBinding = require(pkgName)
+      return nativeBinding
+    } catch (e) {
+      // Ignore missing optional package; fall back to sidecar search.
+      if (e?.code !== 'MODULE_NOT_FOUND') {
+        loadError = e
+      }
+    }
+  }
 
   // 查找项目根目录的 sidecar
   let currentDir = __dirname
